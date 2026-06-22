@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magnetic Tweezers — Field Gradient Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Page background stays dark even when this file is opened directly
+     in a browser (prevents the white-page / oversized-canvas look) */
+  html, body {
+    background: #0f1117;
+    color: #e0e0e0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 28px;
+  }
+
+  /* Fixed-width stage so the whole thing never stretches to fill
+     an ultra-wide monitor or PowerPoint object frame */
+  #stage {
+    width: 100%;
+    max-width: 760px;
+  }
+
+  h1 { font-size: 19px; font-weight: 500; color: #fff; margin-bottom: 3px; letter-spacing: 0.01em; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 14px; }
+  .eq {
+    font-size: 12px; color: #aaa; text-align: center;
+    margin-bottom: 14px; font-style: italic;
+    background: #1a1d27; border-radius: 8px; padding: 7px 14px;
+    border: 0.5px solid #2a2d3a;
+  }
+  .readout { display: flex; gap: 7px; margin-bottom: 14px; flex-wrap: wrap; }
+  .metric {
+    flex: 1; min-width: 92px;
+    background: #1a1d27; border-radius: 8px;
+    padding: 7px 10px; text-align: center;
+    border: 0.5px solid #2a2d3a;
+  }
+  .metric .mlbl { font-size: 9px; color: #666; margin-bottom: 2px; }
+  .metric .mval { font-size: 14px; font-weight: 500; color: #e0e0e0; }
+  .metric .mval.hi { color: #e85050; }
+  .metric .mval.lo { color: #5a9fe8; }
+
+  svg#diagram { display: block; width: 100%; height: auto; }
+
+  .controls { width: 100%; }
+  .ctrl-section {
+    background: #1a1d27; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 7px;
+    border: 0.5px solid #2a2d3a;
+  }
+  .ctrl-title {
+    font-size: 9px; font-weight: 600; color: #666;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 7px;
+  }
+  .ctrl-row { display: flex; align-items: center; gap: 9px; margin: 5px 0; font-size: 11px; color: #888; }
+  .ctrl-row label { min-width: 168px; font-size: 11px; }
+  .ctrl-row input[type=range] { flex: 1; accent-color: #5a9fe8; height: 4px; cursor: pointer; }
+  .ctrl-row .val { min-width: 70px; text-align: right; font-size: 11px; color: #e0e0e0; font-weight: 500; }
+  .two-col { display: flex; gap: 7px; }
+  .two-col > .ctrl-section { flex: 1; }
+  .preset-row { display: flex; gap: 5px; flex-wrap: wrap; }
+  .preset-btn {
+    font-size: 10px; padding: 4px 10px; border-radius: 6px;
+    border: 0.5px solid #2a2d3a; background: #1a1d27; color: #888;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .preset-btn:hover { background: #22263a; color: #e0e0e0; }
+  .preset-btn.active { border-color: #5a9fe8; color: #5a9fe8; background: #161c2e; }
+
+  .ts { font-family: inherit; font-size: 10px; fill: #888; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+
+<h1>Magnetic Tweezers — Field Gradient</h1>
+<p class="subtitle">Two opposing coil–yoke assemblies generating a tunable magnetic gradient at the gap</p>
+
+<div class="eq">
+  F = (&#x3C7; &middot; &#x3C6; &middot; V<sub>total</sub> / &#x3BC;<sub>0</sub>) &middot; B &middot; &nabla;B
+  &nbsp;|&nbsp; r<sub>h</sub> = r + &delta;
+  &nbsp;|&nbsp; F<sub>drag</sub> = 6&pi; &eta; r<sub>h</sub> v
+</div>
+
+<div class="readout">
+  <div class="metric"><div class="mlbl">B left tip</div><div class="mval lo" id="bl-val">—</div></div>
+  <div class="metric"><div class="mlbl">B right tip</div><div class="mval lo" id="br-val">—</div></div>
+  <div class="metric"><div class="mlbl">&nabla;B at gap</div><div class="mval" id="grad-val">—</div></div>
+  <div class="metric"><div class="mlbl">r_h = r + &delta;</div><div class="mval" id="rh-val">—</div></div>
+  <div class="metric"><div class="mlbl">Magnetic force F</div><div class="mval hi" id="force-val">—</div></div>
+  <div class="metric"><div class="mlbl">Stokes drag</div><div class="mval" id="drag-val">—</div></div>
+</div>
+
+<svg id="diagram" viewBox="0 0 680 320">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+
+    <linearGradient id="yokeGradL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#7A8B9E"/>
+      <stop offset="18%" stop-color="#5A6E85"/>
+      <stop offset="45%" stop-color="#46586E"/>
+      <stop offset="55%" stop-color="#3E4F63"/>
+      <stop offset="82%" stop-color="#2E3D4E"/>
+      <stop offset="100%" stop-color="#222E3C"/>
+    </linearGradient>
+    <linearGradient id="yokeGradR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#7A9E84"/>
+      <stop offset="18%" stop-color="#5A8566"/>
+      <stop offset="45%" stop-color="#466E52"/>
+      <stop offset="55%" stop-color="#3E634A"/>
+      <stop offset="82%" stop-color="#2E4E38"/>
+      <stop offset="100%" stop-color="#223C2A"/>
+    </linearGradient>
+    <linearGradient id="tipGradL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#46586E"/>
+      <stop offset="100%" stop-color="#222E3C"/>
+    </linearGradient>
+    <linearGradient id="tipGradR" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%"  stop-color="#466E52"/>
+      <stop offset="100%" stop-color="#223C2A"/>
+    </linearGradient>
+
+    <linearGradient id="windGradOrange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#A85A18"/>
+      <stop offset="35%" stop-color="#E8922A"/>
+      <stop offset="65%" stop-color="#F4AC50"/>
+      <stop offset="100%" stop-color="#A85A18"/>
+    </linearGradient>
+    <linearGradient id="windGradPurple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#5A2070"/>
+      <stop offset="35%" stop-color="#9B4AB2"/>
+      <stop offset="65%" stop-color="#C078D6"/>
+      <stop offset="100%" stop-color="#5A2070"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- LEFT ASSEMBLY -->
+  <g filter="url(#softShadow)">
+    <rect x="28" y="132" width="232" height="38" rx="4" fill="url(#yokeGradL)" stroke="#1A2533" stroke-width="1"/>
+    <line x1="32" y1="136" x2="256" y2="136" stroke="#9AAABC" stroke-width="0.8" opacity="0.5"/>
+    <line x1="32" y1="166" x2="256" y2="166" stroke="#1A2533" stroke-width="0.8" opacity="0.5"/>
+    <polygon points="260,132 292,144.5 292,157.5 260,170" fill="url(#tipGradL)" stroke="#1A2533" stroke-width="1"/>
+    <line x1="260" y1="132" x2="292" y2="144.5" stroke="#8AA0B8" stroke-width="0.6" opacity="0.6"/>
+  </g>
+
+  <rect x="86" y="121" width="92" height="58" rx="6" fill="#1A1410" opacity="0.18"/>
+
+  <g id="coil-l" stroke-linecap="round" fill="none">
+    <line x1="96"  y1="124" x2="96"  y2="176" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="108" y1="123" x2="108" y2="177" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="120" y1="122" x2="120" y2="178" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="132" y1="121" x2="132" y2="179" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="144" y1="121" x2="144" y2="179" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="156" y1="122" x2="156" y2="178" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+    <line x1="168" y1="123" x2="168" y2="177" stroke="url(#windGradOrange)" stroke-width="6.5"/>
+  </g>
+  <rect x="86" y="119" width="92" height="6" rx="3" fill="#C06020" stroke="#7A3810" stroke-width="0.6"/>
+  <rect x="86" y="175" width="92" height="6" rx="3" fill="#C06020" stroke="#7A3810" stroke-width="0.6"/>
+  <g opacity="0.25" stroke="#5A2A05" stroke-width="0.6">
+    <line x1="102" y1="123" x2="102" y2="177"/>
+    <line x1="114" y1="122" x2="114" y2="178"/>
+    <line x1="126" y1="121" x2="126" y2="179"/>
+    <line x1="138" y1="121" x2="138" y2="179"/>
+    <line x1="150" y1="122" x2="150" y2="178"/>
+    <line x1="162" y1="123" x2="162" y2="177"/>
+  </g>
+
+  <text class="ts" x="132" y="111" text-anchor="middle" font-size="12" font-weight="600" fill="#D88030">I&#x2081;</text>
+  <line id="l-curr-arr" x1="115" y1="105" x2="149" y2="105" stroke="#E8922A" stroke-width="2.2" marker-end="url(#arr)"/>
+
+  <rect x="12" y="122" width="10" height="64" rx="2" fill="#1A2533" opacity="0.5"/>
+  <rect id="bl-fill" x="12" y="186" width="10" height="0" rx="2" fill="#5A9FE8" opacity="0.9"/>
+  <text class="ts" x="17" y="116" text-anchor="middle" font-size="9">B</text>
+
+  <text class="ts" x="50"  y="223" text-anchor="middle" font-size="11" font-weight="500">yoke 1</text>
+  <text class="ts" x="132" y="223" text-anchor="middle" font-size="11" font-weight="500">coil 1</text>
+
+  <!-- RIGHT ASSEMBLY -->
+  <g filter="url(#softShadow)">
+    <rect x="420" y="132" width="232" height="38" rx="4" fill="url(#yokeGradR)" stroke="#1A2E1F" stroke-width="1"/>
+    <line x1="424" y1="136" x2="648" y2="136" stroke="#9ABCA2" stroke-width="0.8" opacity="0.5"/>
+    <line x1="424" y1="166" x2="648" y2="166" stroke="#1A2E1F" stroke-width="0.8" opacity="0.5"/>
+    <polygon points="420,132 388,144.5 388,157.5 420,170" fill="url(#tipGradR)" stroke="#1A2E1F" stroke-width="1"/>
+    <line x1="420" y1="132" x2="388" y2="144.5" stroke="#8AB89A" stroke-width="0.6" opacity="0.6"/>
+  </g>
+
+  <rect x="502" y="121" width="92" height="58" rx="6" fill="#10140F" opacity="0.18"/>
+
+  <g id="coil-r" stroke-linecap="round" fill="none">
+    <line x1="512" y1="124" x2="512" y2="176" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="524" y1="123" x2="524" y2="177" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="536" y1="122" x2="536" y2="178" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="548" y1="121" x2="548" y2="179" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="560" y1="121" x2="560" y2="179" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="572" y1="122" x2="572" y2="178" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+    <line x1="584" y1="123" x2="584" y2="177" stroke="url(#windGradPurple)" stroke-width="6.5"/>
+  </g>
+  <rect x="502" y="119" width="92" height="6" rx="3" fill="#7A2A90" stroke="#4A1858" stroke-width="0.6"/>
+  <rect x="502" y="175" width="92" height="6" rx="3" fill="#7A2A90" stroke="#4A1858" stroke-width="0.6"/>
+  <g opacity="0.25" stroke="#3A1048" stroke-width="0.6">
+    <line x1="518" y1="123" x2="518" y2="177"/>
+    <line x1="530" y1="122" x2="530" y2="178"/>
+    <line x1="542" y1="121" x2="542" y2="179"/>
+    <line x1="554" y1="121" x2="554" y2="179"/>
+    <line x1="566" y1="122" x2="566" y2="178"/>
+    <line x1="578" y1="123" x2="578" y2="177"/>
+  </g>
+
+  <text class="ts" x="548" y="111" text-anchor="middle" font-size="12" font-weight="600" fill="#B070C8">I&#x2082;</text>
+  <line id="r-curr-arr" x1="531" y1="105" x2="565" y2="105" stroke="#9B4AB2" stroke-width="2.2" marker-end="url(#arr)"/>
+
+  <rect x="658" y="122" width="10" height="64" rx="2" fill="#1A2E1F" opacity="0.5"/>
+  <rect id="br-fill" x="658" y="186" width="10" height="0" rx="2" fill="#5ACA6A" opacity="0.9"/>
+  <text class="ts" x="663" y="116" text-anchor="middle" font-size="9">B</text>
+
+  <text class="ts" x="630" y="223" text-anchor="middle" font-size="11" font-weight="500">yoke 2</text>
+  <text class="ts" x="548" y="223" text-anchor="middle" font-size="11" font-weight="500">coil 2</text>
+
+  <!-- GAP -->
+  <rect x="292" y="92" width="96" height="138" rx="6" fill="#1a1d27" opacity="0.55"/>
+  <line x1="292" y1="92" x2="292" y2="230" stroke="#444" stroke-width="0.6" stroke-dasharray="3 3"/>
+  <line x1="388" y1="92" x2="388" y2="230" stroke="#444" stroke-width="0.6" stroke-dasharray="3 3"/>
+  <text class="ts" x="340" y="88" text-anchor="middle" font-size="10">gap</text>
+  <line x1="300" y1="82" x2="332" y2="82" stroke="#666" stroke-width="0.6" marker-end="url(#arr)"/>
+  <line x1="380" y1="82" x2="348" y2="82" stroke="#666" stroke-width="0.6" marker-end="url(#arr)"/>
+  <text class="ts" x="292" y="240" text-anchor="middle" font-size="10">tip L</text>
+  <text class="ts" x="388" y="240" text-anchor="middle" font-size="10">tip R</text>
+
+  <g id="field-lines"></g>
+
+  <circle id="bead-coat" cx="340" cy="151" r="18" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="3 2" opacity="0.4"/>
+  <circle id="bead-rh"   cx="340" cy="151" r="15" fill="none" stroke="#e85050" stroke-width="1" stroke-dasharray="3 2" opacity="0.45"/>
+  <circle id="bead-core" cx="340" cy="151" r="11" fill="#e85050" stroke="#a02020" stroke-width="1.5"/>
+  <line id="delta-line" x1="340" y1="151" x2="358" y2="151" stroke="#888" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6"/>
+  <text id="delta-lbl" class="ts" x="362" y="147" font-size="9">&#x3B4;</text>
+  <line id="r-line" x1="340" y1="151" x2="351" y2="151" stroke="#e85050" stroke-width="0.8" opacity="0.7"/>
+  <text id="r-lbl" class="ts" x="344" y="145" font-size="9" style="fill:#c03030">r</text>
+
+  <line id="force-line" x1="340" y1="151" x2="340" y2="151" stroke="#e85050" stroke-width="3" marker-end="url(#arr)" opacity="0"/>
+
+  <!-- Legend -->
+  <circle cx="195" cy="278" r="5" fill="#e85050" stroke="#a02020" stroke-width="1"/>
+  <text class="ts" x="205" y="282" font-size="10">magnetic core (r)</text>
+  <circle cx="308" cy="278" r="7" fill="none" stroke="#e85050" stroke-width="1" stroke-dasharray="3 2" opacity="0.6"/>
+  <text class="ts" x="320" y="282" font-size="10">r_h = r+&#x3B4;</text>
+  <line x1="388" y1="278" x2="408" y2="278" stroke="#e85050" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text class="ts" x="414" y="282" font-size="10">net force F</text>
+  <line x1="468" y1="278" x2="488" y2="278" stroke="#555" stroke-width="0.9" stroke-dasharray="4 3"/>
+  <text class="ts" x="494" y="282" font-size="10">field lines</text>
+</svg>
+
+<div class="controls">
+  <div class="ctrl-section">
+    <div class="ctrl-title">Bead presets (Dynabeads)</div>
+    <div class="preset-row">
+      <button class="preset-btn active" onclick="applyPreset('myone',this)">MyOne (1 µm)</button>
+      <button class="preset-btn" onclick="applyPreset('m270',this)">M-270 (2.8 µm)</button>
+      <button class="preset-btn" onclick="applyPreset('m280',this)">M-280 (2.8 µm)</button>
+      <button class="preset-btn" onclick="applyPreset('strep',this)">Streptavidin-coated</button>
+      <button class="preset-btn" onclick="applyPreset('custom',this)">Custom</button>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="ctrl-section">
+      <div class="ctrl-title">Coil currents &amp; position</div>
+      <div class="ctrl-row">
+        <label>I&#x2081; — left coil (mA)</label>
+        <input type="range" id="sl-i1" min="0" max="500" value="300" step="1" oninput="update()">
+        <span class="val" id="v-i1">300 mA</span>
+      </div>
+      <div class="ctrl-row">
+        <label>I&#x2082; — right coil (mA)</label>
+        <input type="range" id="sl-i2" min="0" max="500" value="100" step="1" oninput="update()">
+        <span class="val" id="v-i2">100 mA</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Bead position in gap</label>
+        <input type="range" id="sl-pos" min="5" max="95" value="50" step="1" oninput="update()">
+        <span class="val" id="v-pos">center</span>
+      </div>
+    </div>
+    <div class="ctrl-section">
+      <div class="ctrl-title">Bead physical properties</div>
+      <div class="ctrl-row">
+        <label>Core radius r (nm)</label>
+        <input type="range" id="sl-r" min="50" max="2000" value="500" step="10" oninput="update()">
+        <span class="val" id="v-r">500 nm</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Coating thickness &#x3B4; (nm)</label>
+        <input type="range" id="sl-delta" min="0" max="500" value="80" step="5" oninput="update()">
+        <span class="val" id="v-delta">80 nm</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Susceptibility &#x3C7;</label>
+        <input type="range" id="sl-chi" min="0.01" max="3.0" value="1.0" step="0.01" oninput="update()">
+        <span class="val" id="v-chi">1.00</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Magnetic fill fraction &#x3C6;</label>
+        <input type="range" id="sl-phi" min="0.01" max="1.0" value="0.25" step="0.01" oninput="update()">
+        <span class="val" id="v-phi">0.25</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Bead velocity v (µm/s)</label>
+        <input type="range" id="sl-v" min="0.1" max="50" value="5" step="0.1" oninput="update()">
+        <span class="val" id="v-vel">5.0 µm/s</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /#stage -->
+
+<script>
+const MU0 = 4*Math.PI*1e-7;
+const ETA = 1e-3;
+const GAP_X0 = 292, GAP_X1 = 388, GAP_CY = 151;
+const GAP_M  = 96e-6;
+const K_B    = 0.4e-3;
+
+const PRESETS = {
+  myone: { r:500,  delta:30,  chi:1.4, phi:0.20 },
+  m270:  { r:1400, delta:40,  chi:1.2, phi:0.18 },
+  m280:  { r:1400, delta:80,  chi:1.0, phi:0.16 },
+  strep: { r:500,  delta:120, chi:1.4, phi:0.20 },
+  custom: null
+};
+
+function applyPreset(key, btn){
+  document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const p = PRESETS[key];
+  if(!p) return;
+  ['r','delta','chi','phi'].forEach(k=>{
+    document.getElementById('sl-'+k).value = p[k];
+  });
+  update();
+}
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function clamp(v,lo,hi){ return Math.max(lo,Math.min(hi,v)); }
+
+function fmtF(fN){
+  const pN = fN*1e12;
+  if(Math.abs(pN)>=0.1) return pN.toFixed(2)+' pN';
+  return (fN*1e15).toFixed(1)+' fN';
+}
+
+function update(){
+  const I1    = +document.getElementById('sl-i1').value;
+  const I2    = +document.getElementById('sl-i2').value;
+  const pos   = +document.getElementById('sl-pos').value/100;
+  const r_m   = +document.getElementById('sl-r').value * 1e-9;
+  const delta = +document.getElementById('sl-delta').value * 1e-9;
+  const chi   = +document.getElementById('sl-chi').value;
+  const phi   = +document.getElementById('sl-phi').value;
+  const vel   = +document.getElementById('sl-v').value * 1e-6;
+  const r_h   = r_m + delta;
+
+  document.getElementById('v-i1').textContent    = I1+' mA';
+  document.getElementById('v-i2').textContent    = I2+' mA';
+  document.getElementById('v-pos').textContent   = pos<0.35?'left':pos>0.65?'right':'center';
+  document.getElementById('v-r').textContent     = Math.round(r_m*1e9)+' nm';
+  document.getElementById('v-delta').textContent = Math.round(delta*1e9)+' nm';
+  document.getElementById('v-chi').textContent   = chi.toFixed(2);
+  document.getElementById('v-phi').textContent   = phi.toFixed(2);
+  document.getElementById('v-vel').textContent   = (vel*1e6).toFixed(1)+' µm/s';
+  document.getElementById('rh-val').textContent  =
+    Math.round(r_m*1e9)+' + '+Math.round(delta*1e9)+' = '+Math.round(r_h*1e9)+' nm';
+
+  const BL = I1 * K_B, BR = I2 * K_B;
+  document.getElementById('bl-val').textContent   = (BL*1e3).toFixed(0)+' mT';
+  document.getElementById('br-val').textContent   = (BR*1e3).toFixed(0)+' mT';
+
+  const gradB  = (BR - BL) / GAP_M;
+  document.getElementById('grad-val').textContent = gradB.toFixed(0)+' T/m';
+
+  const B_bead = lerp(BL, BR, pos);
+  const V_tot  = (4/3)*Math.PI*Math.pow(r_m,3);
+  const F_mag  = (chi * phi * V_tot / MU0) * B_bead * gradB;
+  document.getElementById('force-val').textContent = fmtF(Math.abs(F_mag));
+
+  const F_drag = 6*Math.PI*ETA*r_h*vel;
+  document.getElementById('drag-val').textContent = fmtF(F_drag);
+
+  const PX_PER_NM = 11/500;
+  const corePx = clamp(r_m*1e9*PX_PER_NM, 4, 22);
+  const rhPx   = clamp(r_h*1e9*PX_PER_NM, corePx+2, 30);
+  const beadX  = Math.round(lerp(GAP_X0+22, GAP_X1-22, pos));
+
+  ['bead-core','bead-rh','bead-coat'].forEach(id=>{
+    document.getElementById(id).setAttribute('cx', beadX);
+    document.getElementById(id).setAttribute('cy', GAP_CY);
+  });
+  document.getElementById('bead-core').setAttribute('r', corePx.toFixed(1));
+  document.getElementById('bead-rh').setAttribute('r',   rhPx.toFixed(1));
+  document.getElementById('bead-coat').setAttribute('r', (rhPx+1.5).toFixed(1));
+  document.getElementById('bead-coat').style.opacity = (rhPx-corePx)>1 ? '0.35':'0';
+
+  document.getElementById('delta-line').setAttribute('x1', beadX);
+  document.getElementById('delta-line').setAttribute('y1', GAP_CY);
+  document.getElementById('delta-line').setAttribute('x2', beadX+rhPx+2);
+  document.getElementById('delta-line').setAttribute('y2', GAP_CY);
+  document.getElementById('delta-lbl').setAttribute('x', beadX+rhPx+4);
+  document.getElementById('delta-lbl').setAttribute('y', GAP_CY-3);
+  document.getElementById('r-line').setAttribute('x1', beadX);
+  document.getElementById('r-line').setAttribute('y1', GAP_CY);
+  document.getElementById('r-line').setAttribute('x2', beadX+corePx);
+  document.getElementById('r-line').setAttribute('y2', GAP_CY);
+  document.getElementById('r-lbl').setAttribute('x', beadX+corePx/2);
+  document.getElementById('r-lbl').setAttribute('y', GAP_CY-4);
+
+  const fl   = document.getElementById('force-line');
+  const flen = clamp(Math.abs(F_mag)*1e12*3, 0, 55);
+  const fdir = F_mag>0?1:F_mag<0?-1:0;
+  if(flen>2 && fdir!==0){
+    fl.setAttribute('x1', beadX+fdir*(rhPx+2));
+    fl.setAttribute('y1', GAP_CY);
+    fl.setAttribute('x2', beadX+fdir*(rhPx+2+flen));
+    fl.setAttribute('y2', GAP_CY);
+    fl.style.opacity='1';
+  } else { fl.style.opacity='0'; }
+
+  const maxH=64;
+  const blH=Math.min(Math.round(BL/0.2*maxH),maxH);
+  const brH=Math.min(Math.round(BR/0.2*maxH),maxH);
+  const blf=document.getElementById('bl-fill');
+  blf.setAttribute('y',String(186-blH)); blf.setAttribute('height',String(blH));
+  const brf=document.getElementById('br-fill');
+  brf.setAttribute('y',String(186-brH)); brf.setAttribute('height',String(brH));
+
+  document.getElementById('l-curr-arr').setAttribute('stroke-width',I1>0?'2.2':'0');
+  document.getElementById('r-curr-arr').setAttribute('stroke-width',I2>0?'2.2':'0');
+
+  drawFieldLines(BL, BR);
+}
+
+function drawFieldLines(BL, BR){
+  const g = document.getElementById('field-lines');
+  g.innerHTML = '';
+  if(BL+BR < 0.001) return;
+  [139,145,151,157,163].forEach((y,i,arr)=>{
+    const frac  = i/(arr.length-1);
+    const bow   = lerp(-5,5,frac)*(BL-BR)/0.2*0.04;
+    const midY  = y+bow;
+    const op    = clamp(0.15+0.35*(BL+BR)/0.4, 0.05, 0.55).toFixed(2);
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',`M ${GAP_X0} ${y} Q 340 ${midY} ${GAP_X1} ${y}`);
+    p.setAttribute('fill','none');
+    p.setAttribute('stroke','#555');
+    p.setAttribute('stroke-width','0.9');
+    p.setAttribute('stroke-dasharray','4 3');
+    p.setAttribute('opacity',op);
+    g.appendChild(p);
+    const t = document.createElementNS('http://www.w3.org/2000/svg','line');
+    t.setAttribute('x1','336'); t.setAttribute('y1',String(midY));
+    t.setAttribute('x2','344'); t.setAttribute('y2',String(midY));
+    t.setAttribute('stroke','#555');
+    t.setAttribute('stroke-width','0.9');
+    t.setAttribute('marker-end','url(#arr)');
+    t.setAttribute('opacity',op);
+    g.appendChild(t);
+  });
+}
+
+update();
+</script>
+</body>
+</html>
